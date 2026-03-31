@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from pydantic import AnyHttpUrl, Field
 from pydantic_settings import BaseSettings
 from typing import List, Optional
@@ -73,6 +74,26 @@ class Settings(BaseSettings):
             # This app uses SQLAlchemy async engine with asyncpg.
             if url.startswith("postgresql://") and "+asyncpg" not in url:
                 url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+            # asyncpg expects `ssl`, not `sslmode`.
+            parsed = urlsplit(url)
+            if parsed.query:
+                query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+                normalized_pairs: list[tuple[str, str]] = []
+                for key, value in query_pairs:
+                    if key == "sslmode":
+                        normalized_pairs.append(("ssl", value))
+                    else:
+                        normalized_pairs.append((key, value))
+                url = urlunsplit(
+                    (
+                        parsed.scheme,
+                        parsed.netloc,
+                        parsed.path,
+                        urlencode(normalized_pairs, doseq=True),
+                        parsed.fragment,
+                    )
+                )
             return url
         return (
             f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
