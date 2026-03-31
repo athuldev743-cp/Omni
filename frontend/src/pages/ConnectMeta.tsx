@@ -50,34 +50,30 @@ const ConnectMeta: React.FC = () => {
     setStatus(null);
 
     // ✅ NOT async — FB.login requires a sync callback
-   window.FB.login(
-  (response: any) => { ... },
+  window.FB.login(
+  (response: any) => {
+    if (!response.authResponse?.code) {
+      setStatus("Meta login was cancelled or failed.");
+      setLoading(false);
+      return;
+    }
+    api.post("/whatsapp/onboard", { code: response.authResponse.code })
+      .then(({ data }) => {
+        setStatus(`✅ WhatsApp connected! WABA: ${data.waba_id || "N/A"} | Phone ID: ${data.phone_number_id || "N/A"}`);
+      })
+      .catch((err: any) => {
+        setStatus(err?.response?.data?.detail || "Failed to complete onboarding. Please try again.");
+      })
+      .finally(() => setLoading(false));
+  },
   {
     config_id: CONFIG_ID,
     response_type: "code",
     override_default_response_type: true,
     redirect_uri: "https://omni-flame-two.vercel.app",
     extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
-  }
+  },
 );
-        // Handle async inside with .then()/.catch()
-        api.post("/whatsapp/onboard", { code: response.authResponse.code })
-          .then(({ data }) => {
-            setStatus(`✅ WhatsApp connected! WABA: ${data.waba_id || "N/A"} | Phone ID: ${data.phone_number_id || "N/A"}`);
-          })
-          .catch((err: any) => {
-            setStatus(err?.response?.data?.detail || "Failed to complete onboarding. Please try again.");
-          })
-          .finally(() => setLoading(false));
-      },
-      {
-        config_id: CONFIG_ID,
-        response_type: "code",
-        override_default_response_type: true,
-        extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
-      },
-    );
-  };
 
   const isSuccess = status?.startsWith("✅");
 
