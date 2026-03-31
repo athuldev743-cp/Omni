@@ -5,6 +5,9 @@ from pydantic_settings import BaseSettings
 from typing import List, Optional
 
 
+FRONTEND_URL: str = "https://omni-flame-two.vercel.app"
+
+
 class Settings(BaseSettings):
     # Core
     PROJECT_NAME: str = "OmniAgent SaaS"
@@ -67,6 +70,7 @@ class Settings(BaseSettings):
 
     # CORS / Frontend
     CORS_ORIGINS: List[AnyHttpUrl] = []
+    FRONTEND_URL: str = "https://omni-flame-two.vercel.app"
 
     class Config:
         env_file = ".env"

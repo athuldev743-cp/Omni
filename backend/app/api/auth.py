@@ -140,13 +140,13 @@ async def google_callback(
         await session.commit()
 
     jwt_token = create_access_token(str(user.id), extra_claims={"tenant_id": user.tenant_id})
-    response = RedirectResponse(url="/")
+    response = RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard")
     response.set_cookie(
         key=settings.COOKIE_NAME,
         value=jwt_token,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=True,
+        samesite="none",
     )
     return response
 
