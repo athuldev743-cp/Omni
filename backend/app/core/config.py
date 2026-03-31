@@ -1,6 +1,6 @@
 from functools import lru_cache
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from pydantic import AnyHttpUrl, Field
+from pydantic import AnyHttpUrl, Field, field_validator
 from pydantic_settings import BaseSettings
 from typing import List, Optional
 
@@ -69,8 +69,17 @@ class Settings(BaseSettings):
     MIN_WALLET_CREDITS: int = 10
 
     # CORS / Frontend
-    CORS_ORIGINS: List[AnyHttpUrl] = []
+    CORS_ORIGINS: List[str] = ["https://omni-flame-two.vercel.app"]
+    
     FRONTEND_URL: str = "https://omni-flame-two.vercel.app"
+
+
+@field_validator("CORS_ORIGINS", mode="before")
+@classmethod
+def parse_cors(cls, v):
+    if isinstance(v, str):
+        return [i.strip() for i in v.split(",")]
+    return v    
 
     class Config:
         env_file = ".env"
