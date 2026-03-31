@@ -12,7 +12,6 @@ from sqlalchemy.pool import NullPool
 
 from .config import get_settings
 
-
 settings = get_settings()
 
 convention = {
@@ -37,24 +36,15 @@ class Base(DeclarativeBase):
     tenant_id = Column(Integer, index=True, nullable=False)
 
 
-engine_kwargs: dict = {
-    "echo": False,
-    "future": True,
-    "pool_pre_ping": settings.DB_POOL_PRE_PING,
-}
-
-# With this:
-_is_neon = (
-    settings.DATABASE_URL is not None
-    and "neon.tech" in (settings.DATABASE_URL or "")
-)
+# ✅ Only ONE engine_kwargs definition
+_is_neon = "neon.tech" in (settings.DATABASE_URL or "")
 
 engine_kwargs: dict = {
     "echo": False,
     "future": True,
     "pool_pre_ping": settings.DB_POOL_PRE_PING,
-    # asyncpg needs ssl passed as connect_args, NOT as a URL query param
-    **({"connect_args": {"ssl": "require"}} if _is_neon else {}),
+    # asyncpg requires ssl=True (boolean), NOT ssl="require" (string)
+    **({"connect_args": {"ssl": True}} if _is_neon else {}),
 }
 
 if settings.DB_POOL_SIZE <= 0:
@@ -83,15 +73,7 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """
-    Create all tables on startup.
-
-    Note: this project can also use Alembic migrations for schema changes
-    after initial table creation.
-    """
     if settings.ENVIRONMENT.lower() != "development":
         return
-
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
