@@ -5,9 +5,6 @@ from pydantic_settings import BaseSettings
 from typing import List, Optional
 
 
-FRONTEND_URL: str = "https://omni-flame-two.vercel.app"
-
-
 class Settings(BaseSettings):
     # Core
     PROJECT_NAME: str = "OmniAgent SaaS"
@@ -70,16 +67,14 @@ class Settings(BaseSettings):
 
     # CORS / Frontend
     CORS_ORIGINS: List[str] = ["https://omni-flame-two.vercel.app"]
-    
     FRONTEND_URL: str = "https://omni-flame-two.vercel.app"
 
-
-@field_validator("CORS_ORIGINS", mode="before")
-@classmethod
-def parse_cors(cls, v):
-    if isinstance(v, str):
-        return [i.strip() for i in v.split(",")]
-    return v    
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors(cls, v):
+        if isinstance(v, str):
+            return [i.strip() for i in v.split(",")]
+        return v
 
     class Config:
         env_file = ".env"
@@ -97,7 +92,6 @@ def parse_cors(cls, v):
         if url.startswith("postgres://"):
             url = "postgresql://" + url[len("postgres://"):]
 
-        # Remove unsupported / unwanted params
         parsed = urlsplit(url)
         if parsed.query:
             REMOVE_KEYS = {"sslmode", "ssl", "channel_binding", "options"}
@@ -120,12 +114,10 @@ def parse_cors(cls, v):
 
     @property
     def sqlalchemy_database_uri(self) -> str:
-        """Backward-compatible alias (async)."""
         return self.sqlalchemy_database_uri_async
 
     @property
     def sqlalchemy_database_uri_sync(self) -> str:
-        """Sync DB URL (for Alembic, scripts)."""
         url = self._normalized_database_url()
         if url.startswith("postgresql+asyncpg://"):
             return url.replace("postgresql+asyncpg://", "postgresql://", 1)
@@ -133,7 +125,6 @@ def parse_cors(cls, v):
 
     @property
     def sqlalchemy_database_uri_async(self) -> str:
-        """Async DB URL (for app runtime)."""
         url = self._normalized_database_url()
         if url.startswith("postgresql://") and "+asyncpg" not in url:
             return url.replace("postgresql://", "postgresql+asyncpg://", 1)
