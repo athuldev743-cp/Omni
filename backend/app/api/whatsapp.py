@@ -49,16 +49,44 @@ async def onboard_whatsapp(
     session: DBSessionDep,
 ) -> dict:
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
-        raise HTTPException(status_code=500, detail="Meta App credentials not configured on server")
+        raise HTTPException(
+            status_code=500,
+            detail="Meta App credentials not configured on server",
+        )
 
     body = await request.json()
-    short_lived_token = body.get("access_token")
-    if not short_lived_token:
-        raise HTTPException(status_code=400, detail="Missing access_token")
+    code = body.get("code")
+    redirect_uri = body.get("redirect_uri", "")
+
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing code")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
 
-        # ── Step 1: Exchange short-lived → long-lived token ─────────────────
+        # ── Step 1: Exchange code → short-lived token ────────────────────────
+        token_res = await client.get(
+            "https://graph.facebook.com/v21.0/oauth/access_token",
+            params={
+                "client_id":     settings.META_APP_ID,
+                "client_secret": settings.META_APP_SECRET,
+                "code":          code,
+                "redirect_uri":  redirect_uri,
+            },
+        )
+        if not token_res.is_success:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Meta token exchange failed: {token_res.text}",
+            )
+        token_data = token_res.json()
+        short_lived_token = token_data.get("access_token")
+        if not short_lived_token:
+            raise HTTPException(
+                status_code=502,
+                detail=f"No access token in response: {token_data}",
+            )
+
+        # ── Step 2: Exchange short-lived → long-lived token ──────────────────
         long_lived_res = await client.get(
             "https://graph.facebook.com/v21.0/oauth/access_token",
             params={
@@ -69,16 +97,25 @@ async def onboard_whatsapp(
             },
         )
         if not long_lived_res.is_success:
-            raise HTTPException(status_code=502, detail=f"Long-lived token exchange failed: {long_lived_res.text}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Long-lived token exchange failed: {long_lived_res.text}",
+            )
         long_lived_token = long_lived_res.json().get("access_token") or short_lived_token
 
-        # ── Step 2: Fetch WABA_ID ────────────────────────────────────────────
+        # ── Step 3: Fetch WABA_ID ────────────────────────────────────────────
         waba_res = await client.get(
             "https://graph.facebook.com/v21.0/me/businesses",
-            params={"access_token": long_lived_token, "fields": "whatsapp_business_accounts"},
+            params={
+                "access_token": long_lived_token,
+                "fields": "whatsapp_business_accounts",
+            },
         )
         if not waba_res.is_success:
-            raise HTTPException(status_code=502, detail=f"Failed to fetch WABA: {waba_res.text}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch WABA: {waba_res.text}",
+            )
         waba_data = waba_res.json()
 
         waba_id = None
@@ -91,7 +128,7 @@ async def onboard_whatsapp(
                 waba_id = waba_accounts[0].get("id")
                 break
 
-        # ── Step 3: Fetch Phone Number ID ────────────────────────────────────
+        # ── Step 4: Fetch Phone Number ID ────────────────────────────────────
         if waba_id:
             phones_res = await client.get(
                 f"https://graph.facebook.com/v21.0/{waba_id}/phone_numbers",
@@ -102,7 +139,7 @@ async def onboard_whatsapp(
                 if phones_data:
                     phone_number_id = phones_data[0].get("id")
 
-    # ── Step 4: Save to DB ───────────────────────────────────────────────────
+    # ── Step 5: Save to DB ───────────────────────────────────────────────────
     user_res = await session.execute(select(User).where(User.id == current_user.id))
     user = user_res.scalar_one_or_none()
     if user is None:

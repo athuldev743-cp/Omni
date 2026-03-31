@@ -84,42 +84,23 @@ const ConnectMeta: React.FC = () => {
           setLoading(false);
           return;
         }
-
-        // Exchange code client-side first to get access token
-        window.FB.api(
-          "/oauth/access_token",
-          "GET",
-          {
-            client_id: APP_ID,
+        api
+          .post("/whatsapp/onboard", {
             code: response.authResponse.code,
             redirect_uri: "",
-          },
-          (tokenResponse: any) => {
-            console.log("TOKEN RESPONSE:", JSON.stringify(tokenResponse));
-            if (tokenResponse?.error || !tokenResponse?.access_token) {
-              setStatus("Failed to get access token from Meta.");
-              setLoading(false);
-              return;
-            }
-            // Send access_token directly to backend instead of code
-            api
-              .post("/whatsapp/onboard", {
-                access_token: tokenResponse.access_token,
-              })
-              .then(({ data }) => {
-                setStatus(
-                  `✅ WhatsApp connected! WABA: ${data.waba_id || "N/A"} | Phone ID: ${data.phone_number_id || "N/A"}`,
-                );
-              })
-              .catch((err: any) => {
-                setStatus(
-                  err?.response?.data?.detail ||
-                    "Failed to complete onboarding. Please try again.",
-                );
-              })
-              .finally(() => setLoading(false));
-          },
-        );
+          })
+          .then(({ data }) => {
+            setStatus(
+              `✅ WhatsApp connected! WABA: ${data.waba_id || "N/A"} | Phone ID: ${data.phone_number_id || "N/A"}`,
+            );
+          })
+          .catch((err: any) => {
+            setStatus(
+              err?.response?.data?.detail ||
+                "Failed to complete onboarding. Please try again.",
+            );
+          })
+          .finally(() => setLoading(false));
       },
       {
         config_id: CONFIG_ID,
@@ -128,7 +109,7 @@ const ConnectMeta: React.FC = () => {
         extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
       },
     );
-  }; // ← this closing brace was missing
+  };
 
   const isSuccess = status?.startsWith("✅");
 
