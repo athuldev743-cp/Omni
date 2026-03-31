@@ -74,7 +74,7 @@ async def onboard_whatsapp(
                 "client_id":     settings.META_APP_ID,
                 "client_secret": settings.META_APP_SECRET,
                 "code":          code,
-                "redirect_uri":  settings.FRONTEND_URL,
+                "redirect_uri":  "https://www.facebook.com/connect/login_success.html",
             },
         )
         if not token_res.is_success:
@@ -99,7 +99,8 @@ async def onboard_whatsapp(
             },
         )
         long_lived_res.raise_for_status()
-        long_lived_token = long_lived_res.json().get("access_token") or short_lived_token
+        long_lived_token = long_lived_res.json().get(
+            "access_token") or short_lived_token
 
         # ── Step 3: Fetch WABA_ID and PHONE_NUMBER_ID from Graph API ────────
         waba_res = await client.get(
@@ -117,7 +118,8 @@ async def onboard_whatsapp(
 
         businesses = waba_data.get("data") or []
         for biz in businesses:
-            waba_accounts = biz.get("whatsapp_business_accounts", {}).get("data") or []
+            waba_accounts = biz.get(
+                "whatsapp_business_accounts", {}).get("data") or []
             if waba_accounts:
                 waba_id = waba_accounts[0].get("id")
                 break
@@ -139,8 +141,8 @@ async def onboard_whatsapp(
         raise HTTPException(status_code=404, detail="User not found")
 
     user.meta_access_token_encrypted = encrypt_token(long_lived_token)
-    user.meta_waba_id                = waba_id
-    user.meta_whatsapp_phone_id      = phone_number_id
+    user.meta_waba_id = waba_id
+    user.meta_whatsapp_phone_id = phone_number_id
 
     await session.commit()
 
