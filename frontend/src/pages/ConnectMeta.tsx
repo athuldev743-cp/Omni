@@ -2,11 +2,26 @@ import React, { useEffect, useState } from "react";
 import { api } from "../api";
 
 declare global {
-  interface Window {
-    FB: any;
-    fbAsyncInit: () => void;
-  }
+  interface Window { FB: any; fbAsyncInit: () => void; }
 }
+
+const S = {
+  page: { padding: "24px 28px", maxWidth: 640 } as React.CSSProperties,
+  card: {
+    background: "#161929", border: "1px solid rgba(255,255,255,0.06)",
+    borderRadius: 14, padding: 22, marginBottom: 16,
+  } as React.CSSProperties,
+  btn: (disabled: boolean, color = "#06d6a0"): React.CSSProperties => ({
+    width: "100%", padding: "13px 0", borderRadius: 11,
+    background: disabled ? "rgba(255,255,255,0.04)" : `linear-gradient(135deg,${color},${color === "#06d6a0" ? "#4f6ef7" : color})`,
+    border: `1px solid ${disabled ? "rgba(255,255,255,0.06)" : "transparent"}`,
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14,
+    color: disabled ? "#4a4f72" : "#fff",
+    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+    transition: "opacity 0.2s",
+  }),
+};
 
 const ConnectMeta: React.FC = () => {
   const [status, setStatus] = useState<string | null>(null);
@@ -16,141 +31,126 @@ const ConnectMeta: React.FC = () => {
   const APP_ID = import.meta.env.VITE_META_APP_ID || "1270370071163693";
   const CONFIG_ID = import.meta.env.VITE_META_CONFIG_ID || "1711172183378816";
 
-  // Load Facebook SDK
   useEffect(() => {
-    if (document.getElementById("facebook-jssdk")) {
-      setSdkReady(true);
-      return;
-    }
-
+    if (document.getElementById("facebook-jssdk")) { setSdkReady(true); return; }
     window.fbAsyncInit = () => {
-      window.FB.init({
-        appId: APP_ID,
-        cookie: true,
-        xfbml: true,
-        version: "v21.0",
-      });
+      window.FB.init({ appId: APP_ID, cookie: true, xfbml: true, version: "v21.0" });
       setSdkReady(true);
     };
-
     const script = document.createElement("script");
     script.id = "facebook-jssdk";
     script.src = "https://connect.facebook.net/en_US/sdk.js";
-    script.async = true;
-    script.defer = true;
+    script.async = true; script.defer = true;
     document.body.appendChild(script);
   }, [APP_ID]);
 
   const launchSignup = () => {
-    if (!window.FB) {
-      setStatus(
-        "Facebook SDK not loaded yet. Please wait a moment and try again.",
-      );
-      return;
-    }
-
+    if (!window.FB) { setStatus("Facebook SDK not loaded yet. Please wait and try again."); return; }
     setLoading(true);
     setStatus(null);
 
+    // ✅ NOT async — FB.login requires a sync callback
     window.FB.login(
-      async (response: any) => {
+      (response: any) => {
         if (!response.authResponse?.code) {
           setStatus("Meta login was cancelled or failed.");
           setLoading(false);
           return;
         }
-
-        try {
-          const { data } = await api.post("/whatsapp/onboard", {
-            code: response.authResponse.code,
-          });
-          setStatus(
-            `✅ WhatsApp connected! WABA: ${data.waba_id || "N/A"} | Phone ID: ${data.phone_number_id || "N/A"}`,
-          );
-        } catch (err: any) {
-          setStatus(
-            err?.response?.data?.detail ||
-              "Failed to complete onboarding. Please try again.",
-          );
-        } finally {
-          setLoading(false);
-        }
+        // Handle async inside with .then()/.catch()
+        api.post("/whatsapp/onboard", { code: response.authResponse.code })
+          .then(({ data }) => {
+            setStatus(`✅ WhatsApp connected! WABA: ${data.waba_id || "N/A"} | Phone ID: ${data.phone_number_id || "N/A"}`);
+          })
+          .catch((err: any) => {
+            setStatus(err?.response?.data?.detail || "Failed to complete onboarding. Please try again.");
+          })
+          .finally(() => setLoading(false));
       },
       {
         config_id: CONFIG_ID,
         response_type: "code",
         override_default_response_type: true,
-        extras: {
-          setup: {},
-          featureType: "",
-          sessionInfoVersion: "3",
-        },
+        extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
       },
     );
   };
 
+  const isSuccess = status?.startsWith("✅");
+
   return (
-    <div className="p-6 space-y-6 max-w-xl">
-      <div>
-        <h2 className="text-2xl font-semibold mb-1">Connect WhatsApp</h2>
-        <p className="text-slate-400 text-sm">
-          Click the button below to connect your WhatsApp Business Account in
-          one click. You'll be prompted to log into Facebook and select your
-          Business Account.
-        </p>
+    <div style={S.page}>
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 22, fontWeight: 700, letterSpacing: -0.5, color: "#f0f2ff", marginBottom: 6 }}>
+          Connect WhatsApp
+        </div>
+        <div style={{ fontSize: 13.5, color: "#8b90b8", lineHeight: 1.6 }}>
+          Link your WhatsApp Business Account via Meta Embedded Signup. Takes under 60 seconds.
+        </div>
       </div>
 
-      <div className="bg-slate-900/70 border border-slate-700 rounded-xl p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center text-white font-bold text-lg">
-            W
-          </div>
+      <div style={S.card}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 12,
+            background: "linear-gradient(135deg,#06d6a0,#4f6ef7)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 20, color: "#fff", fontWeight: 800,
+          }}>W</div>
           <div>
-            <div className="font-medium">WhatsApp Business</div>
-            <div className="text-slate-400 text-xs">Meta Embedded Signup</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#f0f2ff", fontFamily: "'Syne', sans-serif" }}>WhatsApp Business</div>
+            <div style={{ fontSize: 12, color: "#4a4f72" }}>Meta Embedded Signup · One-click setup</div>
+          </div>
+          <div style={{ marginLeft: "auto", fontSize: 11, padding: "3px 9px", borderRadius: 20, background: "rgba(6,214,160,0.1)", color: "#06d6a0" }}>
+            {sdkReady ? "SDK Ready" : "Loading..."}
           </div>
         </div>
 
         <button
           onClick={launchSignup}
           disabled={loading || !sdkReady}
-          className="w-full py-3 rounded-lg bg-green-500 hover:bg-green-400 text-white font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+          style={S.btn(loading || !sdkReady)}
         >
-          {loading ? (
-            <>
-              <span className="animate-spin">⏳</span> Connecting...
-            </>
-          ) : !sdkReady ? (
-            "Loading SDK..."
-          ) : (
-            "🔗 Connect WhatsApp Business"
-          )}
+          {loading ? "⏳ Connecting..." : !sdkReady ? "Loading SDK..." : "🔗 Connect WhatsApp Business"}
         </button>
 
         {status && (
-          <div
-            className={`text-sm p-3 rounded-lg ${
-              status.startsWith("✅")
-                ? "bg-green-900/30 text-green-400 border border-green-800"
-                : "bg-red-900/30 text-red-400 border border-red-800"
-            }`}
-          >
-            {status}
-          </div>
+          <div style={{
+            marginTop: 14, fontSize: 13, padding: "11px 14px", borderRadius: 10,
+            background: isSuccess ? "rgba(6,214,160,0.08)" : "rgba(247,37,133,0.08)",
+            border: `1px solid ${isSuccess ? "rgba(6,214,160,0.2)" : "rgba(247,37,133,0.2)"}`,
+            color: isSuccess ? "#06d6a0" : "#f72585",
+            lineHeight: 1.5,
+          }}>{status}</div>
         )}
       </div>
 
-      <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4 text-xs text-slate-400 space-y-1">
-        <div className="font-medium text-slate-300 mb-2">
-          What happens when you connect:
+      {/* Steps */}
+      <div style={S.card}>
+        <div style={{ fontSize: 12, letterSpacing: "1.5px", textTransform: "uppercase", color: "#4a4f72", fontWeight: 600, marginBottom: 16 }}>
+          What happens
         </div>
-        <div>1. Meta popup opens — log in with your Facebook account</div>
-        <div>2. Select your WhatsApp Business Account (WABA)</div>
-        <div>
-          3. Your token + phone ID are encrypted and saved automatically
-        </div>
-        <div>
-          4. OmniAgent can now send/receive WhatsApp messages for your account
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {[
+            { n: 1, title: "Meta popup opens", sub: "Log in with your Facebook account" },
+            { n: 2, title: "Select your WABA", sub: "Choose your WhatsApp Business Account" },
+            { n: 3, title: "Token saved securely", sub: "Encrypted and stored automatically" },
+            { n: 4, title: "AI agent activated", sub: "OmniAgent can now send & receive WhatsApp messages" },
+          ].map(({ n, title, sub }) => (
+            <div key={n} style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div style={{
+                width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+                background: "linear-gradient(135deg,rgba(79,110,247,0.2),rgba(124,58,237,0.2))",
+                border: "1px solid rgba(79,110,247,0.2)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 11, fontWeight: 700, color: "#4f6ef7",
+              }}>{n}</div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: "#f0f2ff", marginBottom: 2 }}>{title}</div>
+                <div style={{ fontSize: 12, color: "#4a4f72" }}>{sub}</div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
