@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     META_WHATSAPP_TOKEN: Optional[str] = None
     META_WHATSAPP_PHONE_ID: Optional[str] = None
     META_WHATSAPP_VERIFY_TOKEN: Optional[str] = None
+    META_APP_ID: Optional[str] = None
+    META_APP_SECRET: Optional[str] = None
+    META_CONFIG_ID: Optional[str] = None
 
     VAPI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
