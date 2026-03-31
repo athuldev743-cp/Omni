@@ -43,6 +43,20 @@ engine_kwargs: dict = {
     "pool_pre_ping": settings.DB_POOL_PRE_PING,
 }
 
+# With this:
+_is_neon = (
+    settings.DATABASE_URL is not None
+    and "neon.tech" in (settings.DATABASE_URL or "")
+)
+
+engine_kwargs: dict = {
+    "echo": False,
+    "future": True,
+    "pool_pre_ping": settings.DB_POOL_PRE_PING,
+    # asyncpg needs ssl passed as connect_args, NOT as a URL query param
+    **({"connect_args": {"ssl": "require"}} if _is_neon else {}),
+}
+
 if settings.DB_POOL_SIZE <= 0:
     engine_kwargs["poolclass"] = NullPool
 else:

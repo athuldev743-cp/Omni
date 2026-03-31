@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "omniagent"
     POSTGRES_PASSWORD: str = "omniagent"
     DATABASE_URL: Optional[str] = None
+
     DB_POOL_PRE_PING: bool = True
     DB_POOL_RECYCLE_SECONDS: int = 1800
     DB_POOL_SIZE: int = 5
@@ -55,7 +56,6 @@ class Settings(BaseSettings):
     META_WHATSAPP_VERIFY_TOKEN: Optional[str] = None
 
     VAPI_API_KEY: Optional[str] = None
-
     GEMINI_API_KEY: Optional[str] = None
 
     # Billing
@@ -70,9 +70,6 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
 
     def _normalized_database_url(self) -> str:
-        """
-        Return a normalized DB URL suitable for SQLAlchemy.
-        """
         if self.DATABASE_URL:
             url = self.DATABASE_URL.strip()
         else:
@@ -81,54 +78,38 @@ class Settings(BaseSettings):
                 f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
             )
 
-        # SQLAlchemy expects postgresql://...
         if url.startswith("postgres://"):
-            url = "postgresql://" + url[len("postgres://") :]
+            url = "postgresql://" + url[len("postgres://"):]
 
-        # Normalize query params for asyncpg compatibility.
-        # - sslmode=require -> ssl=true
-        # - sslmode=disable -> ssl=false
-        # - drop channel_binding (libpq-only)
+        # Remove unsupported / unwanted params
         parsed = urlsplit(url)
         if parsed.query:
-            query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
-            normalized_pairs: list[tuple[str, str]] = []
-            for key, value in query_pairs:
-                if key == "sslmode":
-                    lower = value.lower()
-                    if lower in {"require", "verify-ca", "verify-full", "prefer", "allow"}:
-                        normalized_pairs.append(("ssl", "true"))
-                    elif lower == "disable":
-                        normalized_pairs.append(("ssl", "false"))
-                    else:
-                        normalized_pairs.append(("ssl", "true"))
-                elif key == "channel_binding":
-                    continue
-                else:
-                    normalized_pairs.append((key, value))
+            REMOVE_KEYS = {"sslmode", "ssl", "channel_binding", "options"}
+            query_pairs = [
+                (k, v)
+                for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+                if k not in REMOVE_KEYS
+            ]
             url = urlunsplit(
                 (
                     parsed.scheme,
                     parsed.netloc,
                     parsed.path,
-                    urlencode(normalized_pairs, doseq=True),
+                    urlencode(query_pairs, doseq=True),
                     parsed.fragment,
                 )
             )
+
         return url
 
     @property
     def sqlalchemy_database_uri(self) -> str:
-        """
-        Backward-compatible alias returning async URL for runtime engine.
-        """
+        """Backward-compatible alias (async)."""
         return self.sqlalchemy_database_uri_async
 
     @property
     def sqlalchemy_database_uri_sync(self) -> str:
-        """
-        Synchronous DB URL for migration tooling.
-        """
+        """Sync DB URL (for Alembic, scripts)."""
         url = self._normalized_database_url()
         if url.startswith("postgresql+asyncpg://"):
             return url.replace("postgresql+asyncpg://", "postgresql://", 1)
@@ -136,9 +117,7 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_database_uri_async(self) -> str:
-        """
-        Async DB URL for application runtime engine (asyncpg).
-        """
+        """Async DB URL (for app runtime)."""
         url = self._normalized_database_url()
         if url.startswith("postgresql://") and "+asyncpg" not in url:
             return url.replace("postgresql://", "postgresql+asyncpg://", 1)
@@ -148,4 +127,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-
