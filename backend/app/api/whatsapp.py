@@ -48,47 +48,17 @@ async def onboard_whatsapp(
     current_user: CurrentUserDep,
     session: DBSessionDep,
 ) -> dict:
-    """
-    Receives the 'code' from Meta Embedded Signup popup.
-    Exchanges it for a long-lived token, fetches WABA_ID + PHONE_NUMBER_ID,
-    and saves everything to the user's record.
-    """
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Meta App credentials not configured on server",
-        )
+        raise HTTPException(status_code=500, detail="Meta App credentials not configured on server")
 
     body = await request.json()
-    code = body.get("code")
-    if not code:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Missing code")
+    short_lived_token = body.get("access_token")
+    if not short_lived_token:
+        raise HTTPException(status_code=400, detail="Missing access_token")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
 
-        # ── Step 1: Exchange code → short-lived user access token ──────────
-        token_res = await client.get(
-            "https://graph.facebook.com/v21.0/oauth/access_token",
-            params={
-                "client_id":     settings.META_APP_ID,
-                "client_secret": settings.META_APP_SECRET,
-                "code":          code,
-                "redirect_uri":  "https://www.facebook.com/connect/login_success.html",
-            },
-        )
-        if not token_res.is_success:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Meta token exchange failed: {token_res.text}",
-            )
-        token_data = token_res.json()
-        short_lived_token = token_data.get("access_token")
-        if not short_lived_token:
-            raise HTTPException(
-                status_code=400, detail=f"Token exchange failed: {token_data}")
-
-        # ── Step 2: Exchange short-lived → long-lived token ─────────────────
+        # ── Step 1: Exchange short-lived → long-lived token ─────────────────
         long_lived_res = await client.get(
             "https://graph.facebook.com/v21.0/oauth/access_token",
             params={
@@ -98,19 +68,17 @@ async def onboard_whatsapp(
                 "fb_exchange_token": short_lived_token,
             },
         )
-        long_lived_res.raise_for_status()
-        long_lived_token = long_lived_res.json().get(
-            "access_token") or short_lived_token
+        if not long_lived_res.is_success:
+            raise HTTPException(status_code=502, detail=f"Long-lived token exchange failed: {long_lived_res.text}")
+        long_lived_token = long_lived_res.json().get("access_token") or short_lived_token
 
-        # ── Step 3: Fetch WABA_ID and PHONE_NUMBER_ID from Graph API ────────
+        # ── Step 2: Fetch WABA_ID ────────────────────────────────────────────
         waba_res = await client.get(
             "https://graph.facebook.com/v21.0/me/businesses",
-            params={
-                "access_token": long_lived_token,
-                "fields": "whatsapp_business_accounts",
-            },
+            params={"access_token": long_lived_token, "fields": "whatsapp_business_accounts"},
         )
-        waba_res.raise_for_status()
+        if not waba_res.is_success:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch WABA: {waba_res.text}")
         waba_data = waba_res.json()
 
         waba_id = None
@@ -118,12 +86,12 @@ async def onboard_whatsapp(
 
         businesses = waba_data.get("data") or []
         for biz in businesses:
-            waba_accounts = biz.get(
-                "whatsapp_business_accounts", {}).get("data") or []
+            waba_accounts = biz.get("whatsapp_business_accounts", {}).get("data") or []
             if waba_accounts:
                 waba_id = waba_accounts[0].get("id")
                 break
 
+        # ── Step 3: Fetch Phone Number ID ────────────────────────────────────
         if waba_id:
             phones_res = await client.get(
                 f"https://graph.facebook.com/v21.0/{waba_id}/phone_numbers",
@@ -141,9 +109,8 @@ async def onboard_whatsapp(
         raise HTTPException(status_code=404, detail="User not found")
 
     user.meta_access_token_encrypted = encrypt_token(long_lived_token)
-    user.meta_waba_id = waba_id
-    user.meta_whatsapp_phone_id = phone_number_id
-
+    user.meta_waba_id                = waba_id
+    user.meta_whatsapp_phone_id      = phone_number_id
     await session.commit()
 
     return {
