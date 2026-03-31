@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase, declared_attr
 from sqlalchemy import MetaData, Integer, Column
+from sqlalchemy.pool import NullPool
 
 from .config import get_settings
 
@@ -36,10 +37,23 @@ class Base(DeclarativeBase):
     tenant_id = Column(Integer, index=True, nullable=False)
 
 
+engine_kwargs: dict = {
+    "echo": False,
+    "future": True,
+    "pool_pre_ping": settings.DB_POOL_PRE_PING,
+}
+
+if settings.DB_POOL_SIZE <= 0:
+    engine_kwargs["poolclass"] = NullPool
+else:
+    engine_kwargs["pool_size"] = settings.DB_POOL_SIZE
+    engine_kwargs["max_overflow"] = settings.DB_MAX_OVERFLOW
+    engine_kwargs["pool_timeout"] = settings.DB_POOL_TIMEOUT_SECONDS
+    engine_kwargs["pool_recycle"] = settings.DB_POOL_RECYCLE_SECONDS
+
 engine: AsyncEngine = create_async_engine(
-    settings.sqlalchemy_database_uri,
-    echo=False,
-    future=True,
+    settings.sqlalchemy_database_uri_async,
+    **engine_kwargs,
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -61,6 +75,9 @@ async def init_db() -> None:
     Note: this project can also use Alembic migrations for schema changes
     after initial table creation.
     """
+    if settings.ENVIRONMENT.lower() != "development":
+        return
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

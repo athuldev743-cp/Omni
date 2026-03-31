@@ -23,11 +23,7 @@ if config.config_file_name is not None:
 settings = get_settings()
 
 
-def _asyncpg_uri_to_sync(uri: str) -> str:
-    return uri.replace("postgresql+asyncpg://", "postgresql://")
-
-
-config.set_main_option("sqlalchemy.url", _asyncpg_uri_to_sync(settings.sqlalchemy_database_uri))
+config.set_main_option("sqlalchemy.url", settings.sqlalchemy_database_uri_sync)
 
 target_metadata = Base.metadata
 
