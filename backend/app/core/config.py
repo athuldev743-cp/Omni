@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "omniagent"
     POSTGRES_USER: str = "omniagent"
     POSTGRES_PASSWORD: str = "omniagent"
+    DATABASE_URL: Optional[str] = None
 
     # Redis / Celery
     REDIS_URL: str = "redis://redis:6379/0"
@@ -63,6 +64,16 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_database_uri(self) -> str:
+        # Prefer explicit DATABASE_URL in hosted environments (e.g., Render).
+        if self.DATABASE_URL:
+            url = self.DATABASE_URL.strip()
+            # Render often provides postgres://...; SQLAlchemy expects postgresql://...
+            if url.startswith("postgres://"):
+                url = "postgresql://" + url[len("postgres://") :]
+            # This app uses SQLAlchemy async engine with asyncpg.
+            if url.startswith("postgresql://") and "+asyncpg" not in url:
+                url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            return url
         return (
             f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
