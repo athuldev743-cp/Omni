@@ -74,7 +74,7 @@ async def onboard_whatsapp(
                 "client_id":     settings.META_APP_ID,
                 "client_secret": settings.META_APP_SECRET,
                 "code":          code,
-                "redirect_uri":  "https://www.facebook.com/connect/login_success.html",
+                "redirect_uri":  "https://omni-flame-two.vercel.app",
             },
         )
         if not token_res.is_success:
