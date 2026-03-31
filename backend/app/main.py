@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
+import asyncio
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,12 +9,24 @@ from app import settings
 from app.api import api_router
 from app.api.deps import get_current_user
 from app.core.database import init_db
+from app.worker.keep_alive import keep_alive
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db()
-    yield
+
+    # ✅ Start keep-alive background task
+    task = asyncio.create_task(keep_alive())
+
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -52,9 +65,9 @@ async def inject_user_from_cookie(request: Request, call_next):
         request.scope["headers"] = list(request.scope["headers"]) + [
             (b"authorization", f"Bearer {token}".encode())
         ]
+
     response = await call_next(request)
     return response
 
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
-
