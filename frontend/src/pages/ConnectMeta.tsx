@@ -51,6 +51,7 @@ const ConnectMeta: React.FC = () => {
 
     window.FB.login(
       (response: any) => {
+        console.log("FB AUTH RESPONSE:", JSON.stringify(response));
         if (!response.authResponse?.code) {
           setStatus("Meta login was cancelled or failed.");
           setLoading(false);
