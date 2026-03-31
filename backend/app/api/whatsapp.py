@@ -13,20 +13,24 @@ router = APIRouter()
 
 @router.get("/webhook")
 async def verify_webhook(request: Request, session: DBSessionDep) -> Response:
-    mode         = request.query_params.get("hub.mode")
-    challenge    = request.query_params.get("hub.challenge")
+    mode = request.query_params.get("hub.mode")
+    challenge = request.query_params.get("hub.challenge")
     verify_token = request.query_params.get("hub.verify_token")
 
     if mode != "subscribe" or not challenge or not verify_token:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Verification failed")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Verification failed")
 
     if settings.META_WHATSAPP_VERIFY_TOKEN and verify_token == settings.META_WHATSAPP_VERIFY_TOKEN:
         return Response(content=challenge, media_type="text/plain")
 
-    user_res = await session.execute(select(User).where(User.meta_whatsapp_verify_token == verify_token))
+    user_res = await session.execute(
+        select(User).where(User.meta_whatsapp_verify_token == verify_token)
+    )
     user = user_res.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Verification failed")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Verification failed")
 
     return Response(content=challenge, media_type="text/plain")
 
@@ -34,7 +38,7 @@ async def verify_webhook(request: Request, session: DBSessionDep) -> Response:
 @router.post("/webhook")
 async def whatsapp_webhook(request: Request, session: DBSessionDep) -> dict:
     payload = await request.json()
-    result  = await handle_whatsapp_webhook(payload, session=session)
+    result = await handle_whatsapp_webhook(payload, session=session)
     return {"status": "ok", "result": result}
 
 
@@ -58,7 +62,8 @@ async def onboard_whatsapp(
     body = await request.json()
     code = body.get("code")
     if not code:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing code")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Missing code")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
 
@@ -69,13 +74,19 @@ async def onboard_whatsapp(
                 "client_id":     settings.META_APP_ID,
                 "client_secret": settings.META_APP_SECRET,
                 "code":          code,
+                "redirect_uri":  settings.FRONTEND_URL,
             },
         )
-        token_res.raise_for_status()
-        token_data       = token_res.json()
+        if not token_res.is_success:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Meta token exchange failed: {token_res.text}",
+            )
+        token_data = token_res.json()
         short_lived_token = token_data.get("access_token")
         if not short_lived_token:
-            raise HTTPException(status_code=400, detail=f"Token exchange failed: {token_data}")
+            raise HTTPException(
+                status_code=400, detail=f"Token exchange failed: {token_data}")
 
         # ── Step 2: Exchange short-lived → long-lived token ─────────────────
         long_lived_res = await client.get(
@@ -93,12 +104,15 @@ async def onboard_whatsapp(
         # ── Step 3: Fetch WABA_ID and PHONE_NUMBER_ID from Graph API ────────
         waba_res = await client.get(
             "https://graph.facebook.com/v21.0/me/businesses",
-            params={"access_token": long_lived_token, "fields": "whatsapp_business_accounts"},
+            params={
+                "access_token": long_lived_token,
+                "fields": "whatsapp_business_accounts",
+            },
         )
         waba_res.raise_for_status()
         waba_data = waba_res.json()
 
-        waba_id       = None
+        waba_id = None
         phone_number_id = None
 
         businesses = waba_data.get("data") or []
