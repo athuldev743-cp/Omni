@@ -11,6 +11,9 @@ from app.services.whatsapp_service import handle_whatsapp_webhook
 router = APIRouter()
 
 
+# ─────────────────────────────────────────────────────────────
+# WEBHOOK VERIFICATION
+# ─────────────────────────────────────────────────────────────
 @router.get("/webhook")
 async def verify_webhook(request: Request, session: DBSessionDep) -> Response:
     mode = request.query_params.get("hub.mode")
@@ -19,22 +22,32 @@ async def verify_webhook(request: Request, session: DBSessionDep) -> Response:
 
     if mode != "subscribe" or not challenge or not verify_token:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Verification failed")
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Verification failed"
+        )
 
+    # Global token
     if settings.META_WHATSAPP_VERIFY_TOKEN and verify_token == settings.META_WHATSAPP_VERIFY_TOKEN:
         return Response(content=challenge, media_type="text/plain")
 
+    # User-specific token
     user_res = await session.execute(
         select(User).where(User.meta_whatsapp_verify_token == verify_token)
     )
     user = user_res.scalar_one_or_none()
+
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Verification failed")
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Verification failed"
+        )
 
     return Response(content=challenge, media_type="text/plain")
 
 
+# ─────────────────────────────────────────────────────────────
+# WEBHOOK RECEIVER
+# ─────────────────────────────────────────────────────────────
 @router.post("/webhook")
 async def whatsapp_webhook(request: Request, session: DBSessionDep) -> dict:
     payload = await request.json()
@@ -42,91 +55,114 @@ async def whatsapp_webhook(request: Request, session: DBSessionDep) -> dict:
     return {"status": "ok", "result": result}
 
 
+# ─────────────────────────────────────────────────────────────
+# ONBOARD WHATSAPP
+# ─────────────────────────────────────────────────────────────
 @router.post("/onboard")
 async def onboard_whatsapp(
     request: Request,
     current_user: CurrentUserDep,
     session: DBSessionDep,
 ) -> dict:
+
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
         raise HTTPException(
             status_code=500,
-            detail="Meta App credentials not configured on server",
+            detail="Meta App credentials not configured"
         )
 
     body = await request.json()
     short_lived_token = body.get("access_token")
+
     if not short_lived_token:
         raise HTTPException(status_code=400, detail="Missing access_token")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
 
-        # ── Step 1: Exchange short-lived → long-lived token ──────────────────
+        # ── Step 1: Exchange token ─────────────────────────────
         long_lived_res = await client.get(
             "https://graph.facebook.com/v21.0/oauth/access_token",
             params={
-                "grant_type":        "fb_exchange_token",
-                "client_id":         settings.META_APP_ID,
-                "client_secret":     settings.META_APP_SECRET,
+                "grant_type": "fb_exchange_token",
+                "client_id": settings.META_APP_ID,
+                "client_secret": settings.META_APP_SECRET,
                 "fb_exchange_token": short_lived_token,
             },
         )
+
         if not long_lived_res.is_success:
             raise HTTPException(
                 status_code=502,
-                detail=f"Long-lived token exchange failed: {long_lived_res.text}",
+                detail=f"Token exchange failed: {long_lived_res.text}",
             )
+
         long_lived_token = long_lived_res.json().get("access_token") or short_lived_token
 
-        # ── Step 2: Fetch WABA_ID ────────────────────────────────────────────
+        # ── Step 2: Fetch WABA directly (CORRECT WAY) ──────────
         waba_res = await client.get(
-            "https://graph.facebook.com/v21.0/me/businesses",
-            params={
-                "access_token": long_lived_token,
-                "fields": "whatsapp_business_accounts",
-            },
+            "https://graph.facebook.com/v21.0/me/whatsapp_business_accounts",
+            params={"access_token": long_lived_token},
         )
+
         if not waba_res.is_success:
+            # fallback debug
+            debug_res = await client.get(
+                "https://graph.facebook.com/v21.0/me",
+                params={
+                    "access_token": long_lived_token,
+                    "fields": "id,name",
+                },
+            )
+            print("DEBUG /me:", debug_res.text)
+
             raise HTTPException(
                 status_code=502,
                 detail=f"Failed to fetch WABA: {waba_res.text}",
             )
-        waba_data = waba_res.json()
 
-        waba_id = None
+        waba_data = waba_res.json()
+        print("WABA DATA:", waba_data)
+
+        accounts = waba_data.get("data") or []
+
+        if not accounts:
+            raise HTTPException(
+                status_code=400,
+                detail="No WhatsApp Business Account found",
+            )
+
+        waba_id = accounts[0].get("id")
+
+        # ── Step 3: Fetch phone number ID ──────────────────────
         phone_number_id = None
 
-        businesses = waba_data.get("data") or []
-        for biz in businesses:
-            waba_accounts = biz.get("whatsapp_business_accounts", {}).get("data") or []
-            if waba_accounts:
-                waba_id = waba_accounts[0].get("id")
-                break
+        phones_res = await client.get(
+            f"https://graph.facebook.com/v21.0/{waba_id}/phone_numbers",
+            params={"access_token": long_lived_token},
+        )
 
-        # ── Step 3: Fetch Phone Number ID ────────────────────────────────────
-        if waba_id:
-            phones_res = await client.get(
-                f"https://graph.facebook.com/v21.0/{waba_id}/phone_numbers",
-                params={"access_token": long_lived_token},
-            )
-            if phones_res.status_code == 200:
-                phones_data = phones_res.json().get("data") or []
-                if phones_data:
-                    phone_number_id = phones_data[0].get("id")
+        if phones_res.is_success:
+            phones = phones_res.json().get("data") or []
+            if phones:
+                phone_number_id = phones[0].get("id")
 
-    # ── Step 4: Save to DB ───────────────────────────────────────────────────
-    user_res = await session.execute(select(User).where(User.id == current_user.id))
+    # ── Step 4: Save to DB ────────────────────────────────────
+    user_res = await session.execute(
+        select(User).where(User.id == current_user.id)
+    )
     user = user_res.scalar_one_or_none()
+
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
     user.meta_access_token_encrypted = encrypt_token(long_lived_token)
-    user.meta_waba_id                = waba_id
-    user.meta_whatsapp_phone_id      = phone_number_id
+    user.meta_waba_id = waba_id
+    user.meta_whatsapp_phone_id = phone_number_id
+
     await session.commit()
 
     return {
-        "status":          "connected",
-        "waba_id":         waba_id,
+        "status": "connected",
+        "waba_id": waba_id,
         "phone_number_id": phone_number_id,
     }
