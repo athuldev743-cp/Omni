@@ -6,6 +6,7 @@ import Dashboard from "./pages/Dashboard";
 import ConnectMeta from "./pages/ConnectMeta";
 import CampaignView from "./pages/CampaignView";
 import Settings from "./pages/Settings";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: "⊞" },
@@ -363,6 +364,7 @@ const AppRoutes: React.FC = () => (
       }
     />
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    <Route path="/privacy" element={<PrivacyPolicy />} />
   </Routes>
 );
 
