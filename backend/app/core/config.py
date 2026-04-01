@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     META_APP_ID: Optional[str] = None
     META_APP_SECRET: Optional[str] = None
     META_CONFIG_ID: Optional[str] = None
+    META_WABA_ID: Optional[str] = None
 
     VAPI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
