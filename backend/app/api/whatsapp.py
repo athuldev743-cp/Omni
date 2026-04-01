@@ -55,38 +55,13 @@ async def onboard_whatsapp(
         )
 
     body = await request.json()
-    code = body.get("code")
-    redirect_uri = body.get("redirect_uri", "")
-
-    if not code:
-        raise HTTPException(status_code=400, detail="Missing code")
+    short_lived_token = body.get("access_token")
+    if not short_lived_token:
+        raise HTTPException(status_code=400, detail="Missing access_token")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
 
-        # ── Step 1: Exchange code → short-lived token ────────────────────────
-        token_res = await client.get(
-            "https://graph.facebook.com/v21.0/oauth/access_token",
-            params={
-                "client_id":     settings.META_APP_ID,
-                "client_secret": settings.META_APP_SECRET,
-                "code":          code,
-                "redirect_uri":  redirect_uri,
-            },
-        )
-        if not token_res.is_success:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Meta token exchange failed: {token_res.text}",
-            )
-        token_data = token_res.json()
-        short_lived_token = token_data.get("access_token")
-        if not short_lived_token:
-            raise HTTPException(
-                status_code=502,
-                detail=f"No access token in response: {token_data}",
-            )
-
-        # ── Step 2: Exchange short-lived → long-lived token ──────────────────
+        # ── Step 1: Exchange short-lived → long-lived token ──────────────────
         long_lived_res = await client.get(
             "https://graph.facebook.com/v21.0/oauth/access_token",
             params={
@@ -103,7 +78,7 @@ async def onboard_whatsapp(
             )
         long_lived_token = long_lived_res.json().get("access_token") or short_lived_token
 
-        # ── Step 3: Fetch WABA_ID ────────────────────────────────────────────
+        # ── Step 2: Fetch WABA_ID ────────────────────────────────────────────
         waba_res = await client.get(
             "https://graph.facebook.com/v21.0/me/businesses",
             params={
@@ -128,7 +103,7 @@ async def onboard_whatsapp(
                 waba_id = waba_accounts[0].get("id")
                 break
 
-        # ── Step 4: Fetch Phone Number ID ────────────────────────────────────
+        # ── Step 3: Fetch Phone Number ID ────────────────────────────────────
         if waba_id:
             phones_res = await client.get(
                 f"https://graph.facebook.com/v21.0/{waba_id}/phone_numbers",
@@ -139,7 +114,7 @@ async def onboard_whatsapp(
                 if phones_data:
                     phone_number_id = phones_data[0].get("id")
 
-    # ── Step 5: Save to DB ───────────────────────────────────────────────────
+    # ── Step 4: Save to DB ───────────────────────────────────────────────────
     user_res = await session.execute(select(User).where(User.id == current_user.id))
     user = user_res.scalar_one_or_none()
     if user is None:

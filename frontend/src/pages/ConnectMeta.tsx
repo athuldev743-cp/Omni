@@ -78,20 +78,15 @@ const ConnectMeta: React.FC = () => {
 
     window.FB.login(
       (response: any) => {
-        console.log("RAW RESPONSE:", JSON.stringify(response));
-        console.log("authResponse:", response.authResponse);
-        console.log("code:", response.authResponse?.code);
-        console.log("status:", response.status);
         console.log("FB AUTH RESPONSE:", JSON.stringify(response));
-        if (!response.authResponse?.code) {
+        if (!response.authResponse?.accessToken) {
           setStatus("Meta login was cancelled or failed.");
           setLoading(false);
           return;
         }
         api
           .post("/whatsapp/onboard", {
-            code: response.authResponse.code,
-            redirect_uri: "",
+            access_token: response.authResponse.accessToken,
           })
           .then(({ data }) => {
             setStatus(
@@ -108,7 +103,7 @@ const ConnectMeta: React.FC = () => {
       },
       {
         config_id: CONFIG_ID,
-        response_type: "code",
+        response_type: "token",
         override_default_response_type: true,
         extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
       },

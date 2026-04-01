@@ -5,8 +5,7 @@ async def test(code):
     secret = "cb528c7dfa5a55402d69095a9cc6dd7d"
     
     uris = [
-        "",
-        "https://www.facebook.com/connect/login_success.html",
+        "https://omni-flame-two.vercel.app/",
         "https://omni-flame-two.vercel.app",
     ]
     
@@ -16,9 +15,10 @@ async def test(code):
                 "https://graph.facebook.com/v21.0/oauth/access_token",
                 params={"client_id": app_id, "client_secret": secret, "code": code, "redirect_uri": uri}
             )
-            print(f"'{uri}' → {r.text[:150]}")
+            print(f"'{uri}':\n  {r.text[:200]}\n")
             if r.is_success:
-                print("✅ WORKS!")
+                print("✅ THIS URI WORKS!")
+                return
 
-code = input("Paste fresh code: ")
+code = input("Paste ONLY the code (starting with AQ...) → ")
 asyncio.run(test(code))
