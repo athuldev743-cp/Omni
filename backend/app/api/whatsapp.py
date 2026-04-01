@@ -26,7 +26,7 @@ async def verify_webhook(request: Request, session: DBSessionDep) -> Response:
             detail="Verification failed"
         )
 
-    # Global token
+    # Global verify token
     if settings.META_WHATSAPP_VERIFY_TOKEN and verify_token == settings.META_WHATSAPP_VERIFY_TOKEN:
         return Response(content=challenge, media_type="text/plain")
 
@@ -56,7 +56,7 @@ async def whatsapp_webhook(request: Request, session: DBSessionDep) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
-# ONBOARD WHATSAPP
+# ONBOARD WHATSAPP (FIXED)
 # ─────────────────────────────────────────────────────────────
 @router.post("/onboard")
 async def onboard_whatsapp(
@@ -65,6 +65,7 @@ async def onboard_whatsapp(
     session: DBSessionDep,
 ) -> dict:
 
+    # ── Validate config ──────────────────────────────────────
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
         raise HTTPException(
             status_code=500,
@@ -79,7 +80,7 @@ async def onboard_whatsapp(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
 
-        # ── Step 1: Exchange token ─────────────────────────────
+        # ── Step 1: Exchange token ────────────────────────────
         long_lived_res = await client.get(
             "https://graph.facebook.com/v21.0/oauth/access_token",
             params={
@@ -96,57 +97,71 @@ async def onboard_whatsapp(
                 detail=f"Token exchange failed: {long_lived_res.text}",
             )
 
-        long_lived_token = long_lived_res.json().get("access_token") or short_lived_token
+        long_lived_token = (
+            long_lived_res.json().get("access_token")
+            or short_lived_token
+        )
 
-        # ── Step 2: Fetch WABA directly (CORRECT WAY) ──────────
+        print("LONG TOKEN:", long_lived_token)
+
+        # ── Step 2: Fetch WABA (PRIMARY METHOD) ───────────────
+        waba_id = None
+        phone_number_id = None
+
         waba_res = await client.get(
             "https://graph.facebook.com/v21.0/me/whatsapp_business_accounts",
             params={"access_token": long_lived_token},
         )
 
-        if not waba_res.is_success:
-            # fallback debug
-            debug_res = await client.get(
+        print("WABA DIRECT:", waba_res.text)
+
+        if waba_res.is_success:
+            accounts = waba_res.json().get("data") or []
+            if accounts:
+                waba_id = accounts[0].get("id")
+
+        # ── Step 2B: Fallback ─────────────────────────────────
+        if not waba_id:
+            fallback_res = await client.get(
                 "https://graph.facebook.com/v21.0/me",
                 params={
                     "access_token": long_lived_token,
-                    "fields": "id,name",
+                    "fields": "whatsapp_business_accounts",
                 },
             )
-            print("DEBUG /me:", debug_res.text)
 
-            raise HTTPException(
-                status_code=502,
-                detail=f"Failed to fetch WABA: {waba_res.text}",
-            )
+            print("WABA FALLBACK:", fallback_res.text)
 
-        waba_data = waba_res.json()
-        print("WABA DATA:", waba_data)
+            if fallback_res.is_success:
+                accounts = (
+                    fallback_res.json()
+                    .get("whatsapp_business_accounts", {})
+                    .get("data") or []
+                )
+                if accounts:
+                    waba_id = accounts[0].get("id")
 
-        accounts = waba_data.get("data") or []
-
-        if not accounts:
+        # ── HARD FAIL if still missing ────────────────────────
+        if not waba_id:
             raise HTTPException(
                 status_code=400,
-                detail="No WhatsApp Business Account found",
+                detail="No WhatsApp Business Account found. Check token permissions.",
             )
 
-        waba_id = accounts[0].get("id")
-
-        # ── Step 3: Fetch phone number ID ──────────────────────
-        phone_number_id = None
-
+        # ── Step 3: Fetch Phone Number ID ─────────────────────
         phones_res = await client.get(
             f"https://graph.facebook.com/v21.0/{waba_id}/phone_numbers",
             params={"access_token": long_lived_token},
         )
+
+        print("PHONES:", phones_res.text)
 
         if phones_res.is_success:
             phones = phones_res.json().get("data") or []
             if phones:
                 phone_number_id = phones[0].get("id")
 
-    # ── Step 4: Save to DB ────────────────────────────────────
+    # ── Step 4: Save to DB ───────────────────────────────────
     user_res = await session.execute(
         select(User).where(User.id == current_user.id)
     )
